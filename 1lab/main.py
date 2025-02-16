@@ -30,9 +30,11 @@ def client_command_input(client_socket):
     elif message == 'cls':
         os.system('cls')
         return 'inner command'
-    else:
+    elif message == 'get tasklist':
         client_socket.send(message.encode('utf-8'))
         return 'outter command'
+    else:
+        print("Error! Command does not exist")
 
 def main():
     client = socket.socket()
