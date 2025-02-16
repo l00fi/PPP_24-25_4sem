@@ -11,20 +11,15 @@ COMMANDS = {
     "cls": "Очистить консоль"
 }
 
-def print_info(text=''):
-    print(f'{NAME}~ ', end=text)
-
-# def completer(inp, state):
-#     _, _, inp = inp.partition("~ ")
-#     options = [command for command in COMMANDS if command.startswith(inp)]
-#     return options[state] if state < len(options) else None
+def completer(inp, state):
+    options = [command for command in COMMANDS if command.startswith(inp)]
+    return options[state] if state < len(options) else None
 
 def client_command_input(client_socket):
-    # readline.set_completer(completer)
-    # readline.parse_and_bind("tab: complete")
+    readline.set_completer(completer)
+    readline.parse_and_bind("tab: complete")
 
-    print_info()
-    message = input()
+    message = input(f'{NAME}~ ')
 
     if message == 'help':
         for command in COMMANDS:
