@@ -28,7 +28,10 @@ def client_command_input(client_socket):
     elif message == 'exit':
         return False
     elif message == 'cls':
-        os.system('cls')
+        if os.name == 'posix':
+            os.system('clear')
+        else:    
+            os.system('cls')
         return 'inner command'
     elif message == 'get tasklist':
         client_socket.send(message.encode('utf-8'))
@@ -47,11 +50,11 @@ def main():
             if client_status == 'outter command':
                 data = client.recv(1024)
                 print(data.decode('utf-8'))
+        client.close()
     except Exception as e:
         print(e)
-        input()
+        # input()
 
-    client.close()
 
 if __name__ == "__main__":
     main()

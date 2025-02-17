@@ -17,15 +17,19 @@ def main():
 
             if 'get tasklist' in command:
                 print(f'[{time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())}] executed the command: "get tasklist"')
-                conn.send(os.popen("tasklist").read().encode('utf-8'))
+                command = "tasklist"
+                if os.name == 'posix':
+                    command = 'ps'
+                conn.send(os.popen(command).read().encode('utf-8'))
 
             if not command:
                 break
+            
+        conn.close()
     except Exception as e:
         print(e)
         input()
 
-    conn.close()
 
 if __name__ == "__main__":
     main()
