@@ -4,6 +4,15 @@ import socket
 import os
 import time
 
+def converter(table):
+    table_text = str(table)
+    rows = list()
+    for item in table_text.split('\n'):
+        rows.append(item.split())
+    json_table = {'procesess':dict()}
+    for i in range(len(rows[0])):
+        pass
+
 def main():
     server = socket.socket()
     server.bind(('', 9090))
@@ -17,10 +26,14 @@ def main():
 
             if 'get tasklist' in command:
                 print(f'[{time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())}] executed the command: "get tasklist"')
-                command = "tasklist"
                 if os.name == 'posix':
-                    command = 'ps'
-                conn.send(os.popen(command).read().encode('utf-8'))
+                    table = os.popen("ps").read()
+                    converter(table)
+                    conn.send(table.encode('utf-8'))
+                else:
+                    table = os.popen("tasklist").read()
+                    converter(table)
+                    conn.send(table.encode('utf-8'))
 
             if not command:
                 break
