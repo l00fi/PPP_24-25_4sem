@@ -16,14 +16,12 @@ COMMANDS = {
     "cls": "Очистить консоль"
 }
 
-def reciver(client_socket):
-    package = client_socket.recv(PACKAGE_LEN)
-    # print(package)
+def reciver(s):
+    package = s.recv(PACKAGE_LEN, socket.MSG_WAITALL)
     n = struct.unpack('!Q', package)[0]
-    return 0 if n == 0 else package
+    return 0 if n == 0 else s.recv(n, socket.MSG_WAITALL)
 
 def sender(client, message):
-    message = message.encode(FORMAT)
     package = struct.pack('!Q', len(message)) + message
     sended_len = 0
     while sended_len < len(package):
@@ -47,7 +45,7 @@ def client_command_input(client_socket):
     
     elif message == 'exit':
 
-        return False
+        return 'inactive'
     
     elif message == 'cls':
 
@@ -59,12 +57,14 @@ def client_command_input(client_socket):
     
     elif message == 'get tasklist':
         
-        sender(client_socket, message)
         # client_socket.send(message.encode(FORMAT))
-        return 'outter command'
+        sender(client_socket, message.encode(FORMAT))
+        sender(client_socket, b'')
+        return 'reciver'
     
     else:
         print("Error! Command does not exist")
+        return 'incorrect command'
 
 def main():
     client = socket.socket()
@@ -73,15 +73,27 @@ def main():
     try:
         while True:
             client_status = client_command_input(client)
-            while client_status != 'recived' and client_status is not False:
-                if client_status == 'outter command':
-                    data = reciver(client)
-                    if data == 0:
-                        client_status = 'recived'
+
+            if client_status == 'incorrect command':
+                continue
+            
+            if client_status == 'reciver':
+                data = reciver(client)
+                while data != 0:
+                    print(data.decode(FORMAT))
                     with open('data_client.json', 'a') as f:
-                        f.write(json.dumps(data))
-                    print(data)
-            if client_status == False:
+                        f.write(json.dumps(data.decode(FORMAT)))
+                    data = reciver(client)
+            # while client_command != 'inactive':
+            #     if client_command == 'outter command':
+            #         data = reciver(client)
+            #         if data == 0:
+            #             break
+            #         with open('data_client.json', 'a') as f:
+            #             f.write(json.dumps(data.decode(FORMAT)))
+            #         print(data)
+
+            if client_status == 'inactive':
                 break
         client.close()
     except Exception as e:

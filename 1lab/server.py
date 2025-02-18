@@ -14,14 +14,13 @@ def get_action_time():
     return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
 
 
-def reciver(client_socket):
-    package = client_socket.recv(PACKAGE_LEN)
-    # print(package)
+def reciver(s):
+    package = s.recv(PACKAGE_LEN, socket.MSG_WAITALL)
     n = struct.unpack('!Q', package)[0]
-    return 0 if n == 0 else package
+    # print(f'--> {n}')
+    return 0 if n == 0 else s.recv(n, socket.MSG_WAITALL)
 
 def sender(client, message):
-    message = message.encode(FORMAT)
     package = struct.pack('!Q', len(message)) + message
     sended_len = 0
     while sended_len < len(package):
@@ -53,21 +52,25 @@ def main():
 
         while True:
 
-            command = reciver(server) # conn.recv(PACKAGE_LEN).decode(FORMAT)
+            # command = conn.recv(PACKAGE_LEN).decode(FORMAT)
+            command = reciver(conn)
+            if command != 0:
+                command = command.decode(FORMAT)
+                
+                if 'get tasklist' in command:
+                    print(f'[{get_action_time()}] executed the command: "get tasklist"')
 
-            if 'get tasklist' in command:
-                print(f'[{get_action_time()}] executed the command: "get tasklist"')
+                    if os.name == 'posix':
+                        table = os.popen("ps").read()
+                    else:
+                        table = os.popen("tasklist").read()
 
-                if os.name == 'posix':
-                    table = os.popen("ps").read()
-                else:
-                    table = os.popen("tasklist").read()
+                    converter(table)
+                    sender(conn, table.encode(FORMAT))
+                    sender(conn, b'')
 
-                converter(table)
-                sender(conn, table)
-
-            if not command:
-                break
+            # if not command:
+            #     break
             
         conn.close()
 
