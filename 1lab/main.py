@@ -5,16 +5,22 @@ import os
 import readline
 import json
 import struct
+import time
 
 NAME = 'localhost'
 PORT = 9090
 FORMAT = 'utf-8'
 PACKAGE_LEN = 8
+JSON_NAME = 'data_server'
 COMMANDS = {
     "get tasklist": "Выводит список процессов исполняемых на сервере",
     "exit": "Прерывает соединение с сервером",
-    "cls": "Очистить консоль"
+    "cls": "Очистить консоль" #,
+    # "kill [PID]": "Остановка процесса по его PID",
 }
+
+def get_action_time():
+    return time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime())
 
 def reciver(s):
     package = s.recv(PACKAGE_LEN, socket.MSG_WAITALL)
@@ -57,10 +63,15 @@ def client_command_input(client_socket):
     
     elif message == 'get tasklist':
         
-        # client_socket.send(message.encode(FORMAT))
         sender(client_socket, message.encode(FORMAT))
         sender(client_socket, b'')
         return 'reciver'
+    
+    # elif 'kill' in message:
+
+    #     sender(client_socket, message.encode(FORMAT))
+    #     sender(client_socket, b'')
+    #     return 'inner command'
     
     else:
         print("Error! Command does not exist")
@@ -79,19 +90,16 @@ def main():
             
             if client_status == 'reciver':
                 data = reciver(client)
+                file_name = get_action_time()
+
+                with open(f'{file_name}.json', 'a') as f:
+                    f.write('')
+
                 while data != 0:
                     print(data.decode(FORMAT))
-                    with open('data_client.json', 'a') as f:
+                    with open(f'{file_name}.json', 'a') as f:
                         f.write(json.dumps(data.decode(FORMAT)))
                     data = reciver(client)
-            # while client_command != 'inactive':
-            #     if client_command == 'outter command':
-            #         data = reciver(client)
-            #         if data == 0:
-            #             break
-            #         with open('data_client.json', 'a') as f:
-            #             f.write(json.dumps(data.decode(FORMAT)))
-            #         print(data)
 
             if client_status == 'inactive':
                 break
