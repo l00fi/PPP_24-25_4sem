@@ -86,10 +86,8 @@ async def login(user: User):
         # Генерирую токен
         token = secrets.token_urlsafe()
         # Добавляю ответ
-        logged_user = {
-                "id": id,
-                "email": email,
-            }
+        logged_user["id"] = id
+        logged_user["email"] = email
     else:
         # Если введн не первый password, то возвращаю сообщение об ошибке
         connection.close()
