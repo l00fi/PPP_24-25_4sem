@@ -18,7 +18,7 @@ app = FastAPI()
 async def root():
     return {"message": "Hello World"}
 
-# Логинимся и проверяем, есть ли такой
+# Добавление нового пользователя в бд
 @app.post(FastApiServerInfo.SIGN_UP_ENDPOINT)
 async def sign_up(user: User):
     token, id = None, None
@@ -63,11 +63,15 @@ async def sign_up(user: User):
     connection.close()
     return existing_users
 
+# Словарь хранит информацию авторизованного пользователя
+logged_user = {
+    "id": -1,
+    "email": "_@_._"
+}
+# Авторизация, если она не прошла, то возвращаю соответствующее сообщение
 @app.post(FastApiServerInfo.LOGIN_ENDPOINT)
 async def login(user: User):
     token, id = None, None
-    # Словарь для возврата в return
-    existing_users = dict()
     # Соезинение с бд
     connection = sqlite3.connect("app/db/database.db")
     cursor = connection.cursor()
@@ -77,15 +81,14 @@ async def login(user: User):
     # Такой пользователь всегда один
     rows = cursor.fetchone()
     if rows:
-        # Распаковываю данные о польщователе
+        # Распаковываю данные о пользователя
         id, email, password = rows
         # Генерирую токен
         token = secrets.token_urlsafe()
         # Добавляю ответ
-        existing_users[id] = {
+        logged_user = {
                 "id": id,
                 "email": email,
-                "token": token  
             }
     else:
         # Если введн не первый password, то возвращаю сообщение об ошибке
@@ -93,7 +96,19 @@ async def login(user: User):
         return {"Message": "Incorrect password"}
     
     connection.close()
-    return existing_users
+    # Вместо возврата logged
+    return {
+        "id": logged_user["id"],
+        "email": logged_user["email"],
+        "token": token
+    }
+
+# Вывод информации об авторизованном пользователе
+@app.post(FastApiServerInfo.USER_INFO_ENDPOINT)
+async def login():
+    return logged_user
 
 if __name__ == "__main__":
+    # Чтобы не прописывать каждый раз команду uvicorn main:app --host 127.0.0.1 --port 12000 
+    # и удобно устанавливать нужный IP и PORT, всё выношу в класс FastApiServerInfo в app/api/models
     uvicorn.run(app, host=FastApiServerInfo.IP, port=FastApiServerInfo.PORT)
