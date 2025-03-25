@@ -12,3 +12,10 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     password = Column(String)
     # token = Column(String)
+
+class Corpuses(Base):
+    __tablename__ = 'Corpuses'  # Имя таблицы в базе данных
+    # Колонки таблицы
+    id = Column(Integer, primary_key=True, index=True)
+    corpus_name = Column(String, unique=True, index=True)
+    text = Column(String)

@@ -7,6 +7,9 @@
     if __name__ == "__main__":
         uvicorn.run(app, host=FastApiServerInfo.IP, port=FastApiServerInfo.PORT)
 ```
+- Если появится желание (или нужда) добавить новую таблицу в базу данных которую смотрит alembic, то: 
+    - Редактируем файл где хранятся конструкторы структур таблиц, в моём случае этом ```models.py```
+    - Теперь в командной строке ```alembic upgrade head``` и ```alembic revision --autogenerate -m "some test"```
 
 Сервер - это ```main.py```, запускать из терминала командой ```uvicorn main:app --host 127.0.0.1 --port 12000```, где **server_script** - название py файла, **server_app** - название переменной которой присвоено FastAPI.
 
