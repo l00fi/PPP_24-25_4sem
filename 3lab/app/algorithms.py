@@ -136,10 +136,3 @@ def agorithms_list():
              "func": LevenshteinDistance()},
              {"name": "ngrams",
              "func": NGrams()}]
-
-# text = "hello world here i am test! ks_study"
-# target = "worl"
-
-# res, time = LevenshteinDistance().find(text, target, 2)
-# res["time"] = time
-# print(res)

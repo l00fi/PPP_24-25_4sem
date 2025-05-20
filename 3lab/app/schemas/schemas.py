@@ -14,3 +14,6 @@ class AlgorithmCall(BaseModel):
     word: str
     algorithm: str
     corpus_id: int
+
+class ParseRequest(BaseModel):
+    url: str

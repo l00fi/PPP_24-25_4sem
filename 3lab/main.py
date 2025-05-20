@@ -1,23 +1,28 @@
 # Это база
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from redis import Redis
-import json
-# Аинхронность
-import asyncio
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status
+import redis.asyncio as redis
+# Аинхронность и другие нужные штуки
+import asyncio, json, os
 # Схемы
-from app.schemas.schemas import User, Corpus, AlgorithmCall
+from app.schemas.schemas import User, Corpus, AlgorithmCall # , ParseRequest
 # Для генерации токена
 import secrets
 # Работаем с бд
 import sqlite3
 # Запуск сервера с заданным ip и портом
 import uvicorn
+# Эндпоинты и настройки сервера
 from app.api.endpoints import FastApiServerInfo 
+from app.websocket.endpoints import WebsocketInfo
 from app.core.config import Settings 
-# Запуск Celery
-from app.celery.tasks import long_running_task
-# Импортирую алгоритмы нечеткого поиска
-from app.algorithms import agorithms_list, LevenshteinDistance, NGrams
+# Запуск задачи Celery
+from app.celery.tasks import long_running_parse
+# Здесь настрйока Celery
+from app.celery.celery_app import celery_app
+# Оттуда же вытаскиваю канал через который отправляются уведомления
+from app.celery.celery_app import REDIS_BROKER
+# "Тяжелые функции"
+from app.celery.tasks import long_running_parse, search_algorithm
 
 # Адрес базы данных
 DB_PATH = "app/db/database.db"
@@ -25,40 +30,82 @@ DB_PATH = "app/db/database.db"
 # fastAPI 
 app = FastAPI()
 
+#--------------------------------------- менеджер WebSocket-соединений #---------------------------------------
+
+# Этот класс нужен для того, чтобы обслуживать сразу несколько клиентов
+class ConnectionManager:
+    def __init__(self):
+        self.active: list[WebSocket] = []
+
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self.active.append(ws)
+
+    def disconnect(self, ws: WebSocket):
+        self.active.remove(ws)
+
+    async def broadcast(self, msg: dict):
+        text = json.dumps(msg)
+        for ws in self.active:
+            await ws.send_text(text)
+
+manager = ConnectionManager()
+
 #--------------------------------------- Начало базовой части ---------------------------------------
 
-redis_client = Redis(host=Settings.REDIS_HOST, port=Settings.REDIS_PORT)
+#--------------------------------------- Базовая часть, 3 работа ---------------------------------------
 
-@app.websocket("/ws/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, user_id: int):
-    await websocket.accept()
-    pubsub = redis_client.pubsub()
+# Подключение к Redis и запуск слушателя при запуске сервера
+@app.on_event("startup")
+async def on_startup():
+    # Глобальные переменные - зло, но голову ломать не хочу
+    # Объявляю подключерие к redis глобальным, чтобы в дальнейшем можно было к нему обращатсья
+    global redis
+    # Слушаю канал для уведомлений
+    redis = await redis.from_url(REDIS_BROKER, decode_responses=True)
+    # запускаю в фоне цикл, который слушает канал
+    asyncio.create_task(notify_loop())
+
+async def notify_loop():
+    sub = redis.pubsub()
+    # Указываю, что подписывабсь на канал websocket - notifications
+    await sub.subscribe(WebsocketInfo.NOTIFICATIONS)
+    while True:
+        msg = await sub.get_message(ignore_subscribe_messages=True, timeout=None)
+        if msg and msg["data"]:
+            data = json.loads(msg["data"])
+            await manager.broadcast(data)
+        await asyncio.sleep(0.01)  # не жрём 100% CPU
+
+# точка входа WebSocket
+@app.websocket(f"/ws/{WebsocketInfo.NOTIFICATIONS}")
+async def ws_notifications(ws: WebSocket):
+    # Ждём подключения клиента
+    await manager.connect(ws)
     try:
-        # Клиент отправляет task_id
-        data = await websocket.receive_json()
-        task_id = data.get("task_id")
-        
-        # Подписка на канал с task_id
-        pubsub.subscribe(f"task_{task_id}")
-        
         while True:
-            message = pubsub.get_message(ignore_subscribe_messages=True)
-            if message:
-                await websocket.send_json(json.loads(message["data"]))
-            await asyncio.sleep(0.1)
+            # Ожидаю пинг от клиента
+            await ws.receive_text()
+    # Если клиент прервёт соединение, то закрываю канал для него
     except WebSocketDisconnect:
-        pubsub.unsubscribe()
-        await websocket.close()
+        manager.disconnect(ws)
 
-@app.post("/tasks")
-def create_task(user_id: int):
-    task = long_running_task.delay(user_id)
+# Тестовая функция для проверки связки Celery + Redis + REST API
+@app.post("/tasks/parse")
+async def run_parse():
+    task = long_running_parse.delay()
+    print(long_running_parse)
     return {"task_id": task.id}
 
-@app.get("/tasks/{task_id}")
-def get_task_status(task_id: str):
-    task = long_running_task.AsyncResult(task_id)
-    return {"status": task.status, "result": task.result}
+#--------------------------------------- Конец базовой части, 3 часть #---------------------------------------
+
+# Функция для запуска search_algorithm на Celery + Redis
+@app.post(f"/tasks/{WebsocketInfo.SEARCH_ALGORITHM}")
+async def run_search_algorithm(req: AlgorithmCall): # req: ParseRequest
+    task = search_algorithm.delay(req.word, req.algorithm, req.corpus_id) # req.url
+    return {"task_id": task.id}
+
+# --------------------------------------
 
 # Добавление нового пользователя в бд
 @app.post(FastApiServerInfo.SIGN_UP_ENDPOINT)
@@ -73,7 +120,12 @@ async def sign_up(user: User):
     cursor.execute("SELECT * FROM Users WHERE email = ?", 
                    (user.email,))
     rows = cursor.fetchall()
-    if not rows:
+    if rows:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Пользователь уже зарегистрирован."
+        )
+    else:
         # Запрос на добавление новую строку 
         cursor.execute("INSERT INTO Users (email, password) VALUES (?, ?)", 
                     (user.email, user.password))
@@ -93,13 +145,8 @@ async def sign_up(user: User):
             }
         
     connection.close()
-    return existing_users
+    return existing_users[id]
 
-# Словарь хранит информацию авторизованного пользователя
-logged_user = {
-    "id": -1,
-    "email": "_@_._"
-}
 # Авторизация, если она не прошла, то возвращаю соответствующее сообщение
 @app.post(FastApiServerInfo.LOGIN_ENDPOINT)
 async def login(user: User):
@@ -117,9 +164,6 @@ async def login(user: User):
         id, email, password = rows
         # Генерирую токен
         token = secrets.token_urlsafe()
-        # Добавляю ответ
-        logged_user["id"] = id
-        logged_user["email"] = email
     else:
         # Если введн не первый password, то возвращаю сообщение об ошибке
         connection.close()
@@ -128,15 +172,11 @@ async def login(user: User):
     connection.close()
     # Вместо возврата logged
     return {
-        "id": logged_user["id"],
-        "email": logged_user["email"],
+        "id": id, # logged_user["id"],
+        "email": email, # logged_user["email"],
         "token": token
     }
 
-# Вывод информации об авторизованном пользователе
-@app.post(FastApiServerInfo.USER_INFO_ENDPOINT)
-async def login():
-    return logged_user
 #--------------------------------------- Конец базовой части ---------------------------------------
 
 # Загрузка текста
@@ -190,34 +230,6 @@ async def courpuses():
         
         connection.close()
         return {"corpuses": all_corpuses_info}
-    else:
-        connection.close()
-        return {"Message": "No corpuses in this table"}
-        
-# Тестируем алгоритмы написанные в algorithms.py
-@app.post(FastApiServerInfo.SEARCH_ALGORITHM)
-async def search_algorithm(call: AlgorithmCall):
-    # Поиск необходимого алгоритмы 
-    alg = 0
-    for alg_info in agorithms_list():
-        if alg_info["name"] == call.algorithm:
-            alg = alg_info
-    if alg == 0:
-        return {"Message": "Algorithm with this name doesn`t exists"}
-    # Соезинение с бд
-    connection = sqlite3.connect(DB_PATH)
-    cursor = connection.cursor()
-    # Запрос на поиск корпсов с заданным именем
-    cursor.execute("SELECT text FROM Corpuses WHERE id = ?",
-                   (call.corpus_id,))
-    rows = cursor.fetchone()
-    if rows:
-        # Выполнение алгоритма
-        result, time = alg["func"].find(rows[0], call.word)
-        result["time"] = time
-        # Возвращаю результат
-        connection.close()
-        return result
     else:
         connection.close()
         return {"Message": "No corpuses in this table"}
